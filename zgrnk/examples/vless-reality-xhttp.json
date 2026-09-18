@@ -1,0 +1,86 @@
+{
+  "log": {
+    "level": "warn"
+  },
+  "dns": {
+    "servers": [
+      {
+        "type": "https",
+        "tag": "remote",
+        "server": "1.1.1.1",
+        "detour": "reality-xhttp"
+      },
+      {
+        "type": "local",
+        "tag": "local"
+      }
+    ],
+    "final": "remote"
+  },
+  "inbounds": [
+    {
+      "type": "tun",
+      "tag": "tun-in",
+      "address": [
+        "172.19.0.1/30"
+      ],
+      "auto_route": true,
+      "strict_route": true
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "vless",
+      "tag": "reality-xhttp",
+      "server": "vpn.example.com",
+      "server_port": 8443,
+      "uuid": "<vless-uuid>",
+      "network": "tcp",
+      "tls": {
+        "enabled": true,
+        "server_name": "<reality-server-name>",
+        "alpn": [
+          "h2"
+        ],
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        },
+        "reality": {
+          "enabled": true,
+          "public_key": "<reality-public-key>",
+          "short_id": "<reality-short-id>"
+        }
+      },
+      "transport": {
+        "type": "xhttp",
+        "mode": "stream-one",
+        "host": "<reality-server-name>",
+        "path": "/<xhttp-path>",
+        "x_padding_bytes": "100-1000"
+      }
+    },
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "action": "sniff"
+      },
+      {
+        "protocol": "dns",
+        "action": "hijack-dns"
+      },
+      {
+        "ip_is_private": true,
+        "outbound": "direct"
+      }
+    ],
+    "final": "reality-xhttp",
+    "auto_detect_interface": true,
+    "default_domain_resolver": "local"
+  }
+}

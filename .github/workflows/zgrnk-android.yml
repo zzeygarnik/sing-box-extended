@@ -4,6 +4,10 @@ on:
   workflow_dispatch:
   push:
     branches: [zgrnk]
+    paths-ignore:
+      - '**.md'
+      - 'docs/screenshots/**'
+      - 'zgrnk/examples/**'
 
 env:
   SFA_REPO: SagerNet/sing-box-for-android

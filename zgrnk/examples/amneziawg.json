@@ -1,0 +1,94 @@
+{
+  "log": {
+    "level": "warn"
+  },
+  "dns": {
+    "servers": [
+      {
+        "type": "https",
+        "tag": "remote",
+        "server": "1.1.1.1",
+        "detour": "awg"
+      },
+      {
+        "type": "local",
+        "tag": "local"
+      }
+    ],
+    "final": "remote"
+  },
+  "inbounds": [
+    {
+      "type": "tun",
+      "tag": "tun-in",
+      "address": [
+        "172.19.0.1/30"
+      ],
+      "auto_route": true,
+      "strict_route": true
+    }
+  ],
+  "endpoints": [
+    {
+      "type": "wireguard",
+      "tag": "awg",
+      "address": [
+        "10.8.1.2/32"
+      ],
+      "private_key": "<client-private-key>",
+      "mtu": 1280,
+      "peers": [
+        {
+          "address": "vpn.example.com",
+          "port": 51820,
+          "public_key": "<server-public-key>",
+          "pre_shared_key": "<pre-shared-key>",
+          "allowed_ips": [
+            "0.0.0.0/0",
+            "::/0"
+          ],
+          "persistent_keepalive_interval": 25
+        }
+      ],
+      "amnezia": {
+        "jc": 4,
+        "jmin": 40,
+        "jmax": 70,
+        "s1": 15,
+        "s2": 30,
+        "s3": 20,
+        "s4": 10,
+        "h1": 123456701,
+        "h2": 123456702,
+        "h3": 123456703,
+        "h4": 123456704,
+        "i1": "<i1-signature-from-server>",
+        "random_trailers": true
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "action": "sniff"
+      },
+      {
+        "protocol": "dns",
+        "action": "hijack-dns"
+      },
+      {
+        "ip_is_private": true,
+        "outbound": "direct"
+      }
+    ],
+    "final": "awg",
+    "auto_detect_interface": true,
+    "default_domain_resolver": "local"
+  }
+}
