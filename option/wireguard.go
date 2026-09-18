@@ -51,6 +51,7 @@ type WireGuardAmnezia struct {
 	I3                     string                   `json:"i3,omitempty"`
 	I4                     string                   `json:"i4,omitempty"`
 	I5                     string                   `json:"i5,omitempty"`
+	RandomTrailers         bool                     `json:"random_trailers,omitempty"`
 	HeaderProtectionKey    string                   `json:"header_protection_key,omitempty"`
 	ContentPaddingAddition *badoption.Range[uint32] `json:"content_padding_addition,omitempty"`
 	RekeyAfterTime         *badoption.Range[uint32] `json:"rekey_after_time,omitempty"`

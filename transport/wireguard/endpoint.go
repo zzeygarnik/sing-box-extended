@@ -214,6 +214,9 @@ func (e *Endpoint) Start(postStart bool) error {
 		if e.options.Amnezia.I5 != "" {
 			ipcConf.WriteString("\ni5=" + e.options.Amnezia.I5)
 		}
+		if e.options.Amnezia.RandomTrailers {
+			ipcConf.WriteString("\nrandom_trailers=true")
+		}
 		if e.options.Amnezia.HeaderProtectionKey != "" {
 			headerProtectionKeyBytes, err := base64.StdEncoding.DecodeString(e.options.Amnezia.HeaderProtectionKey)
 			if err != nil {

@@ -67,6 +67,7 @@ type AmneziaOptions struct {
 	I3                     string
 	I4                     string
 	I5                     string
+	RandomTrailers         bool
 	HeaderProtectionKey    string
 	ContentPaddingAddition *badoption.Range[uint32]
 	RekeyAfterTime         *badoption.Range[uint32]

@@ -96,6 +96,7 @@ func NewEndpoint(ctx context.Context, router adapter.Router, logger log.ContextL
 			I3:                     options.Amnezia.I3,
 			I4:                     options.Amnezia.I4,
 			I5:                     options.Amnezia.I5,
+			RandomTrailers:         options.Amnezia.RandomTrailers,
 			HeaderProtectionKey:    options.Amnezia.HeaderProtectionKey,
 			ContentPaddingAddition: options.Amnezia.ContentPaddingAddition,
 			RekeyAfterTime:         options.Amnezia.RekeyAfterTime,
