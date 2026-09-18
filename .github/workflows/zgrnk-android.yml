@@ -1,0 +1,126 @@
+name: ZGRNK Android
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [zgrnk]
+
+env:
+  SFA_REPO: SagerNet/sing-box-for-android
+  SFA_REF: af61098358a8141dea71f232b7eaebf4ccee8868
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.26.7
+          cache: false
+      - name: Vet
+        run: go vet ./option/ ./transport/wireguard/
+      - name: Test
+        run: go test -v ./option/ -run TestWireGuardAmneziaRandomTrailersUnmarshal
+
+  android:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+        with:
+          fetch-depth: 1
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.26.7
+          cache: false
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: ~/go/pkg/mod
+          key: go-mod-linux-${{ hashFiles('go.sum') }}
+          restore-keys: go-mod-linux-
+
+      - name: Setup Android NDK
+        id: setup-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r28
+      - name: Setup OpenJDK
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Build libbox (arm64 only)
+        run: |-
+          make lib_install
+          export PATH="$PATH:$(go env GOPATH)/bin"
+          go run ./cmd/internal/build_libbox -target android -platform android/arm64
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+
+      - name: Checkout SFA at pinned commit
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+        with:
+          repository: ${{ env.SFA_REPO }}
+          ref: ${{ env.SFA_REF }}
+          path: sfa
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Apply ZGRNK patches
+        run: |-
+          cd sfa
+          for p in ../zgrnk/sfa-patches/*.patch; do
+            git apply --check "$p"
+            git apply "$p"
+          done
+
+      - name: Write version.properties
+        run: |-
+          cat > sfa/version.properties << EOF
+          VERSION_NAME=1.14.0-extended-2.7.1-zgrnk.${{ github.run_number }}
+          VERSION_CODE=$((100000 + ${{ github.run_number }}))
+          EOF
+
+      - name: Decode signing keystore
+        run: |-
+          echo "${{ secrets.ZGRNK_KEYSTORE_B64 }}" | base64 -d > sfa/app/release.keystore
+
+      - name: Copy libbox artifacts
+        run: |-
+          mkdir -p sfa/app/libs
+          cp libbox.aar libbox-legacy.aar sfa/app/libs/
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6.2.0
+        with:
+          cache-provider: basic
+
+      - name: Build APK
+        run: |-
+          cd sfa
+          ./gradlew --build-cache :app:assembleOtherRelease
+        env:
+          LOCAL_PROPERTIES: ${{ secrets.LOCAL_PROPERTIES }}
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+
+      - name: Verify signature
+        run: |-
+          APK=$(find sfa/app/build/outputs/apk/other/release -name '*arm64-v8a*.apk' | head -1)
+          echo "APK: $APK"
+          "$ANDROID_HOME"/build-tools/*/apksigner verify --print-certs "$APK" | grep -i "SHA-256 digest"
+          mkdir -p dist
+          cp "$APK" dist/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: zgrnk-sfa-arm64
+          path: dist
