@@ -1,0 +1,13 @@
+diff --git a/app/build.gradle.kts b/app/build.gradle.kts
+index 40dffd4..c61c26c 100644
+--- a/app/build.gradle.kts
++++ b/app/build.gradle.kts
+@@ -109,7 +109,7 @@ android {
+             minSdk = 23
+         }
+         create("other") {
+-            minSdk = 23
++            minSdk = 24
+         }
+         create("otherLegacy") {
+             minSdk = 21
