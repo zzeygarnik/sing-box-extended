@@ -30,3 +30,4 @@ logs
 /*.db.backup.*
 /test_download.bin
 /wget-log
+client-android-build/
