@@ -1,0 +1,26 @@
+diff --git a/app/build.gradle.kts b/app/build.gradle.kts
+index 40dffd4..e4c66d5 100644
+--- a/app/build.gradle.kts
++++ b/app/build.gradle.kts
+@@ -68,7 +68,7 @@ android {
+     }
+ 
+     defaultConfig {
+-        applicationId = "io.nekohasekai.sfa"
++        applicationId = "io.nekohasekai.sfa.zgrnk"
+         minSdk = 21
+         targetSdk = 37
+         versionCode = getVersionProps("VERSION_CODE").toInt()
+diff --git a/app/src/main/res/values/strings.xml b/app/src/main/res/values/strings.xml
+index 779a344..c5b008b 100644
+--- a/app/src/main/res/values/strings.xml
++++ b/app/src/main/res/values/strings.xml
+@@ -1,7 +1,7 @@
+ <?xml version='1.0' encoding='utf-8'?>
+ <resources>
+     <!-- App -->
+-    <string name="app_name" translatable="false">sing-box</string>
++    <string name="app_name" translatable="false">ZGRNK</string>
+     <string name="app_version_title">App version</string>
+     <string name="language">Language</string>
+     <string name="system_default">System default</string>
