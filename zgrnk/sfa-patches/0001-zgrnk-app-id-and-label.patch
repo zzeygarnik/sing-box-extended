@@ -1,5 +1,5 @@
 diff --git a/app/build.gradle.kts b/app/build.gradle.kts
-index 40dffd4..e4c66d5 100644
+index 85b7869..6891357 100644
 --- a/app/build.gradle.kts
 +++ b/app/build.gradle.kts
 @@ -68,7 +68,7 @@ android {
@@ -8,11 +8,11 @@ index 40dffd4..e4c66d5 100644
      defaultConfig {
 -        applicationId = "io.nekohasekai.sfa"
 +        applicationId = "io.nekohasekai.sfa.zgrnk"
-         minSdk = 21
+         minSdk = 24
          targetSdk = 37
          versionCode = getVersionProps("VERSION_CODE").toInt()
 diff --git a/app/src/main/res/values/strings.xml b/app/src/main/res/values/strings.xml
-index 779a344..c5b008b 100644
+index af72f81..9769cd2 100644
 --- a/app/src/main/res/values/strings.xml
 +++ b/app/src/main/res/values/strings.xml
 @@ -1,7 +1,7 @@

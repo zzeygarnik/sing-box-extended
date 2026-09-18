@@ -1,0 +1,15 @@
+diff --git a/app/src/main/java/io/nekohasekai/sfa/bg/PlatformInterfaceWrapper.kt b/app/src/main/java/io/nekohasekai/sfa/bg/PlatformInterfaceWrapper.kt
+index 6228569..b4202df 100644
+--- a/app/src/main/java/io/nekohasekai/sfa/bg/PlatformInterfaceWrapper.kt
++++ b/app/src/main/java/io/nekohasekai/sfa/bg/PlatformInterfaceWrapper.kt
+@@ -48,6 +48,10 @@ interface PlatformInterfaceWrapper : PlatformInterface {
+     override fun autoDetectInterfaceControl(fd: Int) {
+     }
+ 
++    override fun bindInterfaceControl(fd: Int, interfaceName: String) {
++        error("bind_interface is not supported on Android")
++    }
++
+     override fun openTun(options: TunOptions): Int {
+         error("invalid argument")
+     }

@@ -7,7 +7,8 @@ on:
 
 env:
   SFA_REPO: SagerNet/sing-box-for-android
-  SFA_REF: af61098358a8141dea71f232b7eaebf4ccee8868
+  # SFA's own "Bump version 1.14.0" commit — NOT sing-box's clients/android gitlink (that one is 1.13.20)
+  SFA_REF: 5d5479d8bb60f7eb45e86402a8aa3a6131dd9ba3
 
 jobs:
   test:
