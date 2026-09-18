@@ -116,7 +116,8 @@ jobs:
         run: |-
           APK=$(find sfa/app/build/outputs/apk/other/release -name '*arm64-v8a*.apk' | head -1)
           echo "APK: $APK"
-          "$ANDROID_HOME"/build-tools/*/apksigner verify --print-certs "$APK" | grep -i "SHA-256 digest"
+          APKSIGNER=$(find "$ANDROID_HOME"/build-tools -maxdepth 2 -name apksigner | sort -V | tail -1)
+          "$APKSIGNER" verify --print-certs "$APK" | grep -i "SHA-256 digest"
           mkdir -p dist
           cp "$APK" dist/
 
