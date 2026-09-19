@@ -175,8 +175,16 @@ object CsqttProcess {
             try {
                 reader.forEachLine { line ->
                     if (generation != myGeneration) return@forEachLine
-                    val event = CsqttEventParser.parse(line.trim()) ?: return@forEachLine
-                    handleEvent(context, event, myGeneration)
+                    val trimmed = line.trim()
+                    val event = CsqttEventParser.parse(trimmed)
+                    if (event != null) {
+                        handleEvent(context, event, myGeneration)
+                    } else if (trimmed.isNotEmpty()) {
+                        // Raw stdout/stderr the client didn't emit as a structured
+                        // event — this is the only place the real crash reason
+                        // (bad password, panic, missing arg, ...) ever shows up.
+                        pushLog("[RAW] $trimmed")
+                    }
                 }
             } catch (_: Exception) {
                 // reader unwinds on process death or stop(); handled below
