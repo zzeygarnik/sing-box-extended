@@ -115,9 +115,13 @@ object CsqttProcess {
         if (!File(binaryPath).exists()) { failStart("Бинарный файл CSQTT не найден в APK"); return }
 
         val totalWorkers = CsqttWorkerCountPolicy.normalizeForHashValues(params.workersPerHash, params.vkHashes)
+        // Upstream's UI has separate host + port fields (port defaulting to 46000); this
+        // overlay merges them into one "host:port" field, so a bare host needs the same
+        // fallback applied here instead.
+        val peerAddress = if (params.peer.contains(":")) params.peer else "${params.peer}:${CsqttConstants.DEFAULT_SERVER_PEER_PORT}"
         val cmd = mutableListOf(
             binaryPath,
-            "-peer", params.peer,
+            "-peer", peerAddress,
             "-n", totalWorkers.toString(),
             "-listen", "${CsqttConstants.LOCAL_LISTEN_HOST}:0",
             "-tun-uds", CsqttConstants.TUN_UDS_NAME,

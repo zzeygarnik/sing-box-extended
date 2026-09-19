@@ -11,6 +11,7 @@ object CsqttConstants {
     const val BINARY_NAME = "libcsqtt.so"
     const val PROCESS_ENV_EVENTS = "CSQTT_EVENTS"
     const val LOCAL_LISTEN_HOST = "127.0.0.1"
+    const val DEFAULT_SERVER_PEER_PORT = 46000
 
     const val DEFAULT_FINGERPRINT = "firefox"
     const val DEFAULT_CLIENT_IDS = "8202606,6287487"
