@@ -185,7 +185,18 @@ fun CsqttTunnelScreen(navController: NavHostController) {
                 }
             }
 
-            Text("Лог:", style = androidx.compose.material3.MaterialTheme.typography.labelLarge)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text("Лог:", style = androidx.compose.material3.MaterialTheme.typography.labelLarge)
+                val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+                IconButton(onClick = {
+                    clipboard.setText(androidx.compose.ui.text.AnnotatedString(state.logTail.joinToString("\n")))
+                }) {
+                    Icon(androidx.compose.material.icons.Icons.Default.ContentCopy, contentDescription = "Копировать лог")
+                }
+            }
             LazyColumn(modifier = Modifier.fillMaxWidth().height(220.dp)) {
                 items(state.logTail.asReversed()) { line ->
                     Text(line, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)

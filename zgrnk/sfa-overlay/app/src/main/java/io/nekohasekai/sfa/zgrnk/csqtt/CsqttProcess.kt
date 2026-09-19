@@ -90,7 +90,7 @@ object CsqttProcess {
         }
         if (p != null) terminateProcess(p)
         CsqttCaptchaWebViewManager.onTunnelStop()
-        _state.value = State()
+        _state.value = State(logTail = _state.value.logTail)
     }
 
     private fun terminateProcess(p: Process) {
@@ -159,6 +159,7 @@ object CsqttProcess {
             starting = true,
             statsText = "Ожидание данных...",
             hashStatus = params.vkHashes.associateWith { HashStatus.READY },
+            logTail = _state.value.logTail,
         )
         startLogReader(context, startedProcess, myGeneration, params)
     }
@@ -206,7 +207,7 @@ object CsqttProcess {
                             }
                         }
                     } else {
-                        _state.value = State()
+                        _state.value = State(logTail = _state.value.logTail)
                     }
                 }
             }
