@@ -187,13 +187,15 @@ class CsqttVpnService : VpnService() {
     }
 
     private fun buildNotification(text: String): android.app.Notification {
-        val manager = getSystemService(NotificationManager::class.java)
-        val channel = NotificationChannel(
-            CsqttConstants.NOTIFICATION_CHANNEL_ID,
-            "CSQTT",
-            NotificationManager.IMPORTANCE_LOW,
-        )
-        manager.createNotificationChannel(channel)
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            val manager = getSystemService(NotificationManager::class.java)
+            val channel = NotificationChannel(
+                CsqttConstants.NOTIFICATION_CHANNEL_ID,
+                "CSQTT",
+                NotificationManager.IMPORTANCE_LOW,
+            )
+            manager.createNotificationChannel(channel)
+        }
         val openIntent = PendingIntent.getActivity(
             this, 0,
             Intent(this, MainActivity::class.java),

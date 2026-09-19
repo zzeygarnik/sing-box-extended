@@ -26,7 +26,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 import java.lang.ref.WeakReference
-import java.util.concurrent.TimeUnit
 
 object CsqttProcess {
 
@@ -99,12 +98,12 @@ object CsqttProcess {
             p.outputStream.write("STOP\n".toByteArray(Charsets.UTF_8))
             p.outputStream.flush()
         }
-        runCatching { p.waitFor(3_000, TimeUnit.MILLISECONDS) }
-        if (p.isAlive) {
+        runCatching { CsqttProcessCompat.waitFor(p, 3_000) }
+        if (CsqttProcessCompat.isAlive(p)) {
             runCatching { p.destroy() }
-            runCatching { p.waitFor(500, TimeUnit.MILLISECONDS) }
+            runCatching { CsqttProcessCompat.waitFor(p, 500) }
         }
-        if (p.isAlive) runCatching { p.destroyForcibly() }
+        if (CsqttProcessCompat.isAlive(p)) runCatching { CsqttProcessCompat.destroyForcibly(p) }
     }
 
     private fun launchProcessLocked(context: Context, params: CsqttParams) {

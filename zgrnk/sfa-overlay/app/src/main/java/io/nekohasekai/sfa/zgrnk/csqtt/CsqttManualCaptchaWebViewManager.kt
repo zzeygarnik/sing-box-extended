@@ -45,9 +45,11 @@ object CsqttManualCaptchaWebViewManager {
     private fun showCaptchaNotification(context: Context, redirectUri: String) {
         if (AppLifecycleObserver.isForeground.value) return
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        notificationManager.createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, "CSQTT: капча", NotificationManager.IMPORTANCE_HIGH),
-        )
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            notificationManager.createNotificationChannel(
+                NotificationChannel(CHANNEL_ID, "CSQTT: капча", NotificationManager.IMPORTANCE_HIGH),
+            )
+        }
         val openIntent = Intent(context, CsqttManualCaptchaActivity::class.java).apply {
             putExtra("redirectUri", redirectUri)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
