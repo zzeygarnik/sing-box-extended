@@ -45,6 +45,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import kotlinx.coroutines.launch
@@ -84,6 +85,7 @@ fun CsqttTunnelScreen(navController: NavHostController) {
             )
         },
     ) { padding ->
+        val busy = state.running || state.starting
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -94,59 +96,60 @@ fun CsqttTunnelScreen(navController: NavHostController) {
         ) {
             Text("TURN/RTP транспорт через VK-звонки. См. README проекта.", style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
 
-            OutlinedTextField(
-                value = peer,
-                onValueChange = { peer = it },
-                label = { Text("Сервер (host:port)") },
-                singleLine = true,
-                enabled = !state.running,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            OutlinedTextField(
-                value = password,
-                onValueChange = { password = it },
-                label = { Text("Пароль подключения") },
-                singleLine = true,
-                enabled = !state.running,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            OutlinedTextField(
-                value = hashesText,
-                onValueChange = { hashesText = it },
-                label = { Text("VK-хеши звонков (до 6, по одному на строку)") },
-                enabled = !state.running,
-                modifier = Modifier.fillMaxWidth().height(120.dp),
-            )
-            OutlinedTextField(
-                value = fingerprint,
-                onValueChange = { fingerprint = it },
-                label = { Text("Fingerprint") },
-                singleLine = true,
-                enabled = !state.running,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // While connected/connecting, the settings form (password, hashes) is hidden
+            // entirely rather than just disabled, so sensitive fields aren't on screen.
+            if (!busy) {
                 OutlinedTextField(
-                    value = obfsMode,
-                    onValueChange = { obfsMode = it },
-                    label = { Text("Obfs") },
+                    value = peer,
+                    onValueChange = { peer = it },
+                    label = { Text("Сервер (host:port)") },
                     singleLine = true,
-                    enabled = !state.running,
-                    modifier = Modifier.fillMaxWidth().weight(1f),
+                    modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
-                    value = turnTransport,
-                    onValueChange = { turnTransport = it },
-                    label = { Text("TURN transport") },
+                    value = password,
+                    onValueChange = { password = it },
+                    label = { Text("Пароль подключения") },
                     singleLine = true,
-                    enabled = !state.running,
-                    modifier = Modifier.fillMaxWidth().weight(1f),
+                    visualTransformation = PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth(),
                 )
+                OutlinedTextField(
+                    value = hashesText,
+                    onValueChange = { hashesText = it },
+                    label = { Text("VK-хеши звонков (до 6, по одному на строку)") },
+                    modifier = Modifier.fillMaxWidth().height(120.dp),
+                )
+                OutlinedTextField(
+                    value = fingerprint,
+                    onValueChange = { fingerprint = it },
+                    label = { Text("Fingerprint") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = obfsMode,
+                        onValueChange = { obfsMode = it },
+                        label = { Text("Obfs") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().weight(1f),
+                    )
+                    OutlinedTextField(
+                        value = turnTransport,
+                        onValueChange = { turnTransport = it },
+                        label = { Text("TURN transport") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().weight(1f),
+                    )
+                }
+            } else {
+                Text("Сервер: $peer", style = androidx.compose.material3.MaterialTheme.typography.bodyMedium)
             }
 
             Button(
                 onClick = {
-                    if (state.running) {
+                    if (busy) {
                         CsqttProcess.stop()
                     } else {
                         val prepareIntent = VpnService.prepare(context)
@@ -159,7 +162,7 @@ fun CsqttTunnelScreen(navController: NavHostController) {
                 },
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text(if (state.running) "Отключить" else "Подключить")
+                Text(if (busy) "Отключить" else "Подключить")
             }
 
             Card(modifier = Modifier.fillMaxWidth()) {

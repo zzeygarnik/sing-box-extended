@@ -236,13 +236,16 @@ object CsqttProcess {
                     val clientIp = parts.getOrNull(0) ?: "10.66.66.2"
                     val dns = parts.getOrNull(1) ?: "1.1.1.1"
                     runCatching {
-                        context.startService(
+                        androidx.core.content.ContextCompat.startForegroundService(
+                            context,
                             Intent(context, CsqttVpnService::class.java).apply {
                                 action = "START"
                                 putExtra("client_ip", clientIp)
                                 putExtra("dns", dns)
                             },
                         )
+                    }.onFailure { e ->
+                        pushLog("[VPN] Не удалось запустить VPN-сервис: ${e.message}")
                     }
                 }
             }
