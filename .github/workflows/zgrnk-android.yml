@@ -13,6 +13,10 @@ env:
   SFA_REPO: SagerNet/sing-box-for-android
   # SFA's own "Bump version 1.14.0" commit — NOT sing-box's clients/android gitlink (that one is 1.13.20)
   SFA_REF: 5d5479d8bb60f7eb45e86402a8aa3a6131dd9ba3
+  # amurcanov/csqtt v2.1.9 release APK + its embedded libclient.so, pinned by sha256
+  CSQTT_APK_URL: https://github.com/amurcanov/csqtt/releases/download/v2.1.9/CSQTT-arm64-v8a.apk
+  CSQTT_APK_SHA256: e0dde838d9df49be2ecab38adaecf808231ab5d65ddb6b4024a24fc2db879e04
+  CSQTT_LIBCLIENT_SHA256: 8e861b2360d69176a97df3762a4b5fe94da10051db15e4c1455d35fb56e05d6b
 
 jobs:
   test:
@@ -79,6 +83,21 @@ jobs:
           submodules: recursive
           fetch-depth: 1
 
+      - name: Copy ZGRNK CSQTT overlay sources
+        run: |-
+          mkdir -p sfa/app/src/main/java/io/nekohasekai/sfa/zgrnk/csqtt
+          cp zgrnk/sfa-overlay/app/src/main/java/io/nekohasekai/sfa/zgrnk/csqtt/*.kt \
+            sfa/app/src/main/java/io/nekohasekai/sfa/zgrnk/csqtt/
+
+      - name: Copy ZGRNK app icon
+        run: |-
+          for d in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            cp "zgrnk/icon/mipmap-$d/ic_launcher.png" "sfa/app/src/main/res/mipmap-$d/ic_launcher.png"
+            cp "zgrnk/icon/mipmap-$d/ic_launcher_round.png" "sfa/app/src/main/res/mipmap-$d/ic_launcher_round.png"
+            mkdir -p "sfa/app/src/main/res/drawable-$d"
+            cp "zgrnk/icon/drawable-$d/ic_launcher_foreground.png" "sfa/app/src/main/res/drawable-$d/ic_launcher_foreground.png"
+          done
+
       - name: Apply ZGRNK patches
         run: |-
           cd sfa
@@ -86,6 +105,19 @@ jobs:
             git apply --check "$p"
             git apply "$p"
           done
+
+      - name: Fetch CSQTT binary (pinned, sha256-verified)
+        run: |-
+          set -euo pipefail
+          curl -fL -o csqtt.apk "$CSQTT_APK_URL"
+          echo "$CSQTT_APK_SHA256  csqtt.apk" | sha256sum -c -
+          mkdir -p csqtt-extract
+          unzip -o csqtt.apk -d csqtt-extract >/dev/null
+          echo "$CSQTT_LIBCLIENT_SHA256  csqtt-extract/lib/arm64-v8a/libclient.so" | sha256sum -c -
+          mkdir -p sfa/app/src/main/jniLibs/arm64-v8a
+          cp csqtt-extract/lib/arm64-v8a/libclient.so sfa/app/src/main/jniLibs/arm64-v8a/libcsqtt.so
+          mkdir -p sfa/app/src/main/assets/licenses
+          cp zgrnk/csqtt-license/LICENSE sfa/app/src/main/assets/licenses/CSQTT-LICENSE
 
       - name: Write version.properties
         run: |-

@@ -1,0 +1,102 @@
+diff --git a/app/src/main/AndroidManifest.xml b/app/src/main/AndroidManifest.xml
+index 08295b0..533ec8d 100644
+--- a/app/src/main/AndroidManifest.xml
++++ b/app/src/main/AndroidManifest.xml
+@@ -157,6 +157,20 @@
+                 <action android:name="android.net.VpnService" />
+             </intent-filter>
+         </service>
++        <service
++            android:name=".zgrnk.csqtt.CsqttVpnService"
++            android:exported="false"
++            android:foregroundServiceType="systemExempted"
++            android:permission="android.permission.BIND_VPN_SERVICE"
++            tools:ignore="ForegroundServicePermission">
++            <intent-filter>
++                <action android:name="android.net.VpnService" />
++            </intent-filter>
++        </service>
++        <activity
++            android:name=".zgrnk.csqtt.CsqttManualCaptchaActivity"
++            android:exported="false"
++            android:theme="@style/AppTheme" />
+         <service
+             android:name=".bg.ProxyService"
+             android:exported="false"
+diff --git a/app/src/main/java/io/nekohasekai/sfa/bg/BoxService.kt b/app/src/main/java/io/nekohasekai/sfa/bg/BoxService.kt
+index 5301bd6..1671410 100644
+--- a/app/src/main/java/io/nekohasekai/sfa/bg/BoxService.kt
++++ b/app/src/main/java/io/nekohasekai/sfa/bg/BoxService.kt
+@@ -50,6 +50,9 @@ class BoxService(private val service: Service, private val platformInterface: Pl
+         private const val TAG = "BoxService"
+ 
+         fun start() {
++            // Mutual exclusion with the CSQTT tunnel mode (zgrnk fork): only one VPN
++            // interface can be active at a time, so starting sing-box stops CSQTT first.
++            io.nekohasekai.sfa.zgrnk.csqtt.CsqttProcess.stop()
+             val intent =
+                 runBlocking {
+                     withContext(Dispatchers.IO) {
+diff --git a/app/src/main/java/io/nekohasekai/sfa/compose/navigation/Navigation.kt b/app/src/main/java/io/nekohasekai/sfa/compose/navigation/Navigation.kt
+index 8ab1513..6728855 100644
+--- a/app/src/main/java/io/nekohasekai/sfa/compose/navigation/Navigation.kt
++++ b/app/src/main/java/io/nekohasekai/sfa/compose/navigation/Navigation.kt
+@@ -606,6 +606,16 @@ fun NavHost(
+             PowerReportFileContentScreen(navController = navController, reportId = reportId, fileKind = fileKind)
+         }
+ 
++        composable(
++            route = "tools/csqtt",
++            enterTransition = slideInFromRight,
++            exitTransition = slideOutToLeft,
++            popEnterTransition = slideInFromLeft,
++            popExitTransition = slideOutToRight,
++        ) {
++            io.nekohasekai.sfa.zgrnk.csqtt.CsqttTunnelScreen(navController = navController)
++        }
++
+         composable(Screen.Settings.route) {
+             SettingsScreen(navController = navController)
+         }
+diff --git a/app/src/main/java/io/nekohasekai/sfa/compose/screen/tools/ToolsScreen.kt b/app/src/main/java/io/nekohasekai/sfa/compose/screen/tools/ToolsScreen.kt
+index 8c26139..0da87f1 100644
+--- a/app/src/main/java/io/nekohasekai/sfa/compose/screen/tools/ToolsScreen.kt
++++ b/app/src/main/java/io/nekohasekai/sfa/compose/screen/tools/ToolsScreen.kt
+@@ -24,6 +24,7 @@ import androidx.compose.material.icons.outlined.Memory
+ import androidx.compose.material.icons.outlined.NetworkCheck
+ import androidx.compose.material.icons.outlined.Route
+ import androidx.compose.material.icons.outlined.SwapHoriz
++import androidx.compose.material.icons.outlined.VpnKey
+ import androidx.compose.material3.Badge
+ import androidx.compose.material3.Card
+ import androidx.compose.material3.CardDefaults
+@@ -411,10 +412,28 @@ fun ToolsScreen(
+                     )
+                 },
+                 modifier = Modifier
+-                    .clip(RoundedCornerShape(bottomStart = 12.dp, bottomEnd = 12.dp))
+                     .clickable { navController.navigate("tools/stun_test") },
+                 colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+             )
++            ListItem(
++                headlineContent = {
++                    Text(
++                        "CSQTT",
++                        style = MaterialTheme.typography.bodyLarge,
++                    )
++                },
++                leadingContent = {
++                    Icon(
++                        imageVector = Icons.Outlined.VpnKey,
++                        contentDescription = null,
++                        tint = MaterialTheme.colorScheme.primary,
++                    )
++                },
++                modifier = Modifier
++                    .clip(RoundedCornerShape(bottomStart = 12.dp, bottomEnd = 12.dp))
++                    .clickable { navController.navigate("tools/csqtt") },
++                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
++            )
+         }
+ 
+         // Crash/OOM reports read local files, which the remote control API

@@ -1,0 +1,446 @@
+// SPDX-FileCopyrightText: 2026 amurcanov (original captcha-solving design), 2026 zgrnk fork
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+//
+// Ported from amurcanov/csqtt v2.1.9's CaptchaWebViewManager.kt: a hidden WebView that
+// intercepts VK's own captchaNotRobot.check fetch/XHR responses and, absent a slider
+// challenge, clicks the "I'm not a robot" checkbox itself. Falls back to the manual
+// (visible) WebView in CsqttManualCaptchaWebViewManager on a slider or timeout.
+
+package io.nekohasekai.sfa.zgrnk.csqtt
+
+import android.annotation.SuppressLint
+import android.content.Context
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
+import android.util.Log
+import android.view.MotionEvent
+import android.view.View
+import android.webkit.JavascriptInterface
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import java.lang.ref.WeakReference
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
+import kotlin.coroutines.cancellation.CancellationException
+import kotlin.random.Random
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+
+@SuppressLint("StaticFieldLeak")
+object CsqttCaptchaWebViewManager {
+    private const val TAG = "CsqttCaptchaWV"
+    private const val CAPTCHA_TIMEOUT_MS = CsqttConstants.CAPTCHA_AUTO_TIMEOUT_MS
+    private const val WV_CREATE_TIMEOUT_MS = CsqttConstants.CAPTCHA_WV_CREATE_TIMEOUT_MS
+    const val ERROR_SLIDER_DETECTED = CsqttConstants.ERROR_SLIDER_DETECTED
+
+    private val VIEWPORT_WIDTHS = CsqttConstants.AUTO_VIEWPORT_WIDTHS
+    private val VIEWPORT_HEIGHTS = CsqttConstants.AUTO_VIEWPORT_HEIGHTS
+
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val captchaMutex = Mutex()
+
+    @Volatile
+    private var isTunnelActive = false
+
+    @Volatile
+    private var appContext: WeakReference<Context>? = null
+
+    private val pendingResult = AtomicReference<CompletableDeferred<Result<String>>?>(null)
+    private val postClickSliderWatcher = AtomicReference<Runnable?>(null)
+
+    @Volatile
+    private var currentWebView: WebView? = null
+
+    private fun activeWebView(): WebView? = currentWebView
+
+    private val interceptorJSCode = """
+        (function() {
+            if (window.__csqtt_interceptor_installed) return;
+            window.__csqtt_interceptor_installed = true;
+            const origFetch = window.fetch;
+            window.fetch = async function() {
+                const args = arguments;
+                const url = args[0] || '';
+                if (typeof url === 'string' && url.includes('captchaNotRobot.check')) {
+                    const response = await origFetch.apply(this, args);
+                    const clone = response.clone();
+                    try {
+                        const data = await clone.json();
+                        if (data.response && data.response.success_token) {
+                            window.CsqttCaptcha.onSuccess(data.response.success_token);
+                        } else if (data.response && data.response.show_captcha_type === 'slider') {
+                            window.CsqttCaptcha.onSliderDetected('check_response');
+                        } else if (data.error) {
+                            window.CsqttCaptcha.onError(JSON.stringify(data.error));
+                        }
+                    } catch(e) {}
+                    return response;
+                }
+                return origFetch.apply(this, args);
+            };
+            const origXHROpen = XMLHttpRequest.prototype.open;
+            const origXHRSend = XMLHttpRequest.prototype.send;
+            XMLHttpRequest.prototype.open = function(method, url) {
+                this._csqtt_url = url;
+                return origXHROpen.apply(this, arguments);
+            };
+            XMLHttpRequest.prototype.send = function() {
+                const xhr = this;
+                if (xhr._csqtt_url && xhr._csqtt_url.includes('captchaNotRobot.check')) {
+                    xhr.addEventListener('load', function() {
+                        try {
+                            const data = JSON.parse(xhr.responseText);
+                            if (data.response && data.response.success_token) {
+                                window.CsqttCaptcha.onSuccess(data.response.success_token);
+                            } else if (data.response && data.response.show_captcha_type === 'slider') {
+                                window.CsqttCaptcha.onSliderDetected('check_response');
+                            } else if (data.error) {
+                                window.CsqttCaptcha.onError(JSON.stringify(data.error));
+                            }
+                        } catch(e) {}
+                    });
+                }
+                return origXHRSend.apply(this, arguments);
+            };
+        })();
+    """.trimIndent()
+
+    fun onTunnelStart(context: Context) {
+        appContext = WeakReference(context.applicationContext)
+        isTunnelActive = true
+    }
+
+    fun onTunnelStop() {
+        isTunnelActive = false
+        cancelPendingResult("tunnel stopped")
+        destroyCurrentWebView()
+        appContext = null
+    }
+
+    suspend fun solveCaptchaAsync(redirectUri: String, sessionToken: String, onStep: (String) -> Unit = {}): String {
+        if (!isTunnelActive) throw IllegalStateException("WV не готов — туннель не активен")
+        if (!CsqttCaptchaUriPolicy.isAllowed(redirectUri)) throw IllegalArgumentException("Недопустимый адрес captcha")
+        val ctx = appContext?.get() ?: throw IllegalStateException("WV не готов — контекст null")
+
+        return captchaMutex.withLock {
+            try {
+                withTimeout(CAPTCHA_TIMEOUT_MS) { doSolveCaptcha(ctx, redirectUri, onStep) }
+            } finally {
+                pendingResult.set(null)
+                destroyCurrentWebView()
+            }
+        }
+    }
+
+    private suspend fun doSolveCaptcha(context: Context, redirectUri: String, onStep: (String) -> Unit): String {
+        val deferred = CompletableDeferred<Result<String>>()
+        pendingResult.set(deferred)
+
+        val webView = createWebViewSync(context) ?: throw IllegalStateException("Не удалось создать WebView")
+        onStep("WebView создан")
+
+        withContext(Dispatchers.Main) {
+            webView.evaluateJavascript(interceptorJSCode, null)
+            kotlinx.coroutines.delay(80)
+            webView.loadUrl(redirectUri)
+        }
+
+        return try {
+            deferred.await().getOrThrow()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "captcha error: ${e::class.simpleName} — ${e.message}")
+            throw e
+        }
+    }
+
+    @SuppressLint("SetJavaScriptEnabled")
+    private fun createWebViewSync(context: Context): WebView? {
+        val vw = VIEWPORT_WIDTHS[Random.Default.nextInt(VIEWPORT_WIDTHS.size)]
+        val vh = VIEWPORT_HEIGHTS[Random.Default.nextInt(VIEWPORT_HEIGHTS.size)]
+
+        val latch = CountDownLatch(1)
+        var webView: WebView? = null
+
+        val createAction = Runnable {
+            try {
+                val wv = WebView(context.applicationContext)
+                wv.apply {
+                    settings.apply {
+                        javaScriptEnabled = true
+                        domStorageEnabled = true
+                        mediaPlaybackRequiresUserGesture = false
+                        loadWithOverviewMode = true
+                        useWideViewPort = true
+                        blockNetworkLoads = false
+                        cacheMode = android.webkit.WebSettings.LOAD_NO_CACHE
+                    }
+                    addJavascriptInterface(CaptchaJSBridge(), "CsqttCaptcha")
+                    webViewClient = object : WebViewClient() {
+                        override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) {
+                            super.onPageStarted(view, url, favicon)
+                            view.evaluateJavascript(interceptorJSCode, null)
+                        }
+
+                        override fun onPageFinished(view: WebView, url: String?) {
+                            super.onPageFinished(view, url)
+                            val isCaptchaPage = url?.let {
+                                it.contains("not_robot_captcha") || it.contains("id.vk.ru/captcha") || it.contains("not_robot")
+                            } ?: false
+                            if (isCaptchaPage) {
+                                view.evaluateJavascript(interceptorJSCode, null)
+                                if (activeWebView() === view && isTunnelActive) {
+                                    val pageLoadDelay = 650L + Random.Default.nextLong(0, 550)
+                                    mainHandler.postDelayed({
+                                        if (activeWebView() === view && isTunnelActive) solveCaptchaAutomatedSync(view)
+                                    }, pageLoadDelay)
+                                }
+                            }
+                        }
+
+                        override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? =
+                            super.shouldInterceptRequest(view, request)
+
+                        override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean =
+                            !CsqttCaptchaUriPolicy.isAllowed(request.url.toString())
+
+                        override fun onReceivedSslError(
+                            view: WebView,
+                            handler: android.webkit.SslErrorHandler,
+                            error: android.net.http.SslError,
+                        ) {
+                            handler.cancel()
+                            Log.w(TAG, "SSL error rejected for: ${error.url.orEmpty()}")
+                        }
+                    }
+                    webChromeClient = WebChromeClient()
+                    measure(
+                        View.MeasureSpec.makeMeasureSpec(vw, View.MeasureSpec.EXACTLY),
+                        View.MeasureSpec.makeMeasureSpec(vh, View.MeasureSpec.EXACTLY),
+                    )
+                    layout(0, 0, vw, vh)
+                    onResume()
+                }
+                webView = wv
+                currentWebView = wv
+            } catch (e: Exception) {
+                Log.e(TAG, "WebView create error: ${e.message}")
+                webView = null
+            } finally {
+                latch.countDown()
+            }
+        }
+
+        if (Looper.myLooper() == Looper.getMainLooper()) createAction.run() else mainHandler.post(createAction)
+
+        val ok = latch.await(WV_CREATE_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+        if (!ok) {
+            mainHandler.post { if (webView != null && currentWebView === webView) destroyCurrentWebView() }
+            return null
+        }
+        return webView
+    }
+
+    private fun destroyCurrentWebView() {
+        val wv = activeWebView() ?: return
+        currentWebView = null
+        postClickSliderWatcher.getAndSet(null)?.let { mainHandler.removeCallbacks(it) }
+
+        val destroyAction = Runnable {
+            try {
+                wv.stopLoading()
+                wv.loadUrl("about:blank")
+                runCatching { wv.removeJavascriptInterface("CsqttCaptcha") }
+                wv.webViewClient = WebViewClient()
+                wv.webChromeClient = null
+                wv.onPause()
+                wv.removeAllViews()
+                wv.destroy()
+            } catch (e: Exception) {
+                Log.e(TAG, "WebView destroy error: ${e.message}")
+            }
+        }
+
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            destroyAction.run()
+        } else {
+            val latch = CountDownLatch(1)
+            mainHandler.post { try { destroyAction.run() } finally { latch.countDown() } }
+            latch.await(2000, TimeUnit.MILLISECONDS)
+        }
+    }
+
+    private fun solveCaptchaAutomatedSync(webView: WebView) {
+        if (activeWebView() !== webView || !isTunnelActive) return
+
+        val findLabelJS = """
+            (function() {
+                var slider = document.querySelector(
+                    '[class*="SliderCaptcha"], [class*="Kaleidoscope"], ' +
+                    '.vkc__SliderCaptcha-module__description, ' +
+                    '.vkc__KaleidoscopeScreen-module__captchaId'
+                );
+                if (slider) return '$ERROR_SLIDER_DETECTED';
+                var el = document.querySelector('label.vkc__Checkbox-module__Checkbox');
+                if (!el) el = document.querySelector('label[for="not-robot-captcha-checkbox"]');
+                if (!el) el = document.getElementById('not-robot-captcha-checkbox');
+                if (!el) return 'not_found';
+                var rect = el.getBoundingClientRect();
+                var style = window.getComputedStyle(el);
+                if (rect.width < 5 || rect.height < 5 || style.display === 'none' || style.visibility === 'hidden') {
+                    return 'not_found';
+                }
+                return rect.left + ',' + rect.top + ',' + rect.width + ',' + rect.height;
+            })();
+        """.trimIndent()
+
+        webView.evaluateJavascript(findLabelJS) { rawValue ->
+            val result = rawValue?.replace("\"", "") ?: ""
+            if (activeWebView() !== webView || !isTunnelActive) return@evaluateJavascript
+
+            if (result == ERROR_SLIDER_DETECTED) {
+                notifyResult(Result.failure(IllegalStateException(ERROR_SLIDER_DETECTED)))
+                return@evaluateJavascript
+            }
+
+            if (result == "not_found" || result.split(",").size < 4) {
+                val jsClick = """
+                    (function() {
+                        var el = document.querySelector('label.vkc__Checkbox-module__Checkbox');
+                        if (!el) el = document.getElementById('not-robot-captcha-checkbox');
+                        if (el) { el.click(); return 'clicked'; }
+                        return 'nothing';
+                    })();
+                """.trimIndent()
+                webView.evaluateJavascript(jsClick) { clickResult ->
+                    if ((clickResult ?: "").replace("\"", "") == "clicked") startPostClickSliderWatcher(webView)
+                }
+                return@evaluateJavascript
+            }
+
+            val parts = result.split(",")
+            val left = parts[0].toFloatOrNull() ?: return@evaluateJavascript
+            val top = parts[1].toFloatOrNull() ?: return@evaluateJavascript
+            val width = parts[2].toFloatOrNull() ?: return@evaluateJavascript
+            val height = parts[3].toFloatOrNull() ?: return@evaluateJavascript
+
+            val randX = left + width * (0.15f + Random.Default.nextFloat() * 0.7f)
+            val randY = top + height * (0.25f + Random.Default.nextFloat() * 0.5f)
+            val thinkDelay = 420L + Random.Default.nextLong(0, 260)
+
+            mainHandler.postDelayed({
+                if (activeWebView() === webView && isTunnelActive) {
+                    simulateHumanTouch(webView, randX, randY)
+                    startPostClickSliderWatcher(webView)
+                }
+            }, thinkDelay)
+        }
+    }
+
+    private fun startPostClickSliderWatcher(webView: WebView) {
+        postClickSliderWatcher.getAndSet(null)?.let { mainHandler.removeCallbacks(it) }
+        var attemptsLeft = 14
+        val watcher = object : Runnable {
+            override fun run() {
+                if (activeWebView() !== webView || !isTunnelActive) return
+                val detectSliderJS = """
+                    (function() {
+                        var slider = document.querySelector(
+                            '[class*="SliderCaptcha"], [class*="Kaleidoscope"], ' +
+                            '.vkc__SliderCaptcha-module__description, ' +
+                            '.vkc__KaleidoscopeScreen-module__captchaId, ' +
+                            '.vkc__SwipeButton-module__track'
+                        );
+                        if (slider) return 'slider';
+                        var success = document.querySelector(
+                            '[class*="success"], [class*="Success"], [class*="passed"], [class*="Passed"]'
+                        );
+                        if (success) return 'success_ui';
+                        return 'none';
+                    })();
+                """.trimIndent()
+                webView.evaluateJavascript(detectSliderJS) { rawValue ->
+                    if (activeWebView() !== webView || !isTunnelActive) return@evaluateJavascript
+                    when (rawValue?.replace("\"", "") ?: "none") {
+                        "slider" -> notifyResult(Result.failure(IllegalStateException(ERROR_SLIDER_DETECTED)))
+                        "success_ui" -> postClickSliderWatcher.set(null)
+                        else -> {
+                            attemptsLeft--
+                            if (attemptsLeft > 0) mainHandler.postDelayed(this, 350L) else postClickSliderWatcher.set(null)
+                        }
+                    }
+                }
+            }
+        }
+        postClickSliderWatcher.set(watcher)
+        mainHandler.postDelayed(watcher, 450L)
+    }
+
+    private fun simulateHumanTouch(webView: WebView, cssX: Float, cssY: Float) {
+        if (activeWebView() !== webView) return
+        val density = webView.resources.displayMetrics.density
+        val physX = cssX * density
+        val physY = cssY * density
+        val downTime = SystemClock.uptimeMillis()
+        val pressure = 0.5f + Random.Default.nextFloat() * 0.4f
+
+        val downEvent = MotionEvent.obtain(
+            downTime, downTime, MotionEvent.ACTION_DOWN, physX, physY, pressure, 1f, 0, 1f, 1f, 0, 0,
+        )
+        downEvent.source = android.view.InputDevice.SOURCE_TOUCHSCREEN
+        webView.dispatchTouchEvent(downEvent)
+        downEvent.recycle()
+
+        val holdTime = 80L + Random.Default.nextLong(0, 100)
+        mainHandler.postDelayed({
+            if (activeWebView() === webView) {
+                val jitterX = physX + (-1f + Random.Default.nextFloat() * 2f) * density
+                val jitterY = physY + (-0.5f + Random.Default.nextFloat() * 1f) * density
+                val upEvent = MotionEvent.obtain(
+                    downTime, SystemClock.uptimeMillis(), MotionEvent.ACTION_UP,
+                    jitterX, jitterY, 0f, 1f, 0, 1f, 1f, 0, 0,
+                )
+                upEvent.source = android.view.InputDevice.SOURCE_TOUCHSCREEN
+                webView.dispatchTouchEvent(upEvent)
+                upEvent.recycle()
+            }
+        }, holdTime)
+    }
+
+    private class CaptchaJSBridge {
+        @JavascriptInterface
+        fun onSuccess(token: String) {
+            notifyResult(Result.success(token))
+        }
+
+        @JavascriptInterface
+        fun onSliderDetected(source: String) {
+            notifyResult(Result.failure(IllegalStateException(ERROR_SLIDER_DETECTED)))
+        }
+
+        @JavascriptInterface
+        fun onError(error: String) {
+            notifyResult(Result.failure(Exception("VK: $error")))
+        }
+    }
+
+    private fun notifyResult(result: Result<String>) {
+        val deferred = pendingResult.getAndSet(null) ?: return
+        if (!deferred.isCompleted) deferred.complete(result)
+    }
+
+    private fun cancelPendingResult(reason: String) {
+        val deferred = pendingResult.getAndSet(null) ?: return
+        if (!deferred.isCompleted) deferred.complete(Result.failure(CancellationException(reason)))
+    }
+}
