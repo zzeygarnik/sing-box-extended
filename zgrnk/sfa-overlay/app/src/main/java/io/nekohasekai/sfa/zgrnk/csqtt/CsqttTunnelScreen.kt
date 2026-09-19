@@ -26,6 +26,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -194,7 +195,7 @@ fun CsqttTunnelScreen(navController: NavHostController) {
                 IconButton(onClick = {
                     clipboard.setText(androidx.compose.ui.text.AnnotatedString(state.logTail.joinToString("\n")))
                 }) {
-                    Icon(androidx.compose.material.icons.Icons.Default.ContentCopy, contentDescription = "Копировать лог")
+                    Icon(Icons.Filled.ContentCopy, contentDescription = "Копировать лог")
                 }
             }
             LazyColumn(modifier = Modifier.fillMaxWidth().height(220.dp)) {
