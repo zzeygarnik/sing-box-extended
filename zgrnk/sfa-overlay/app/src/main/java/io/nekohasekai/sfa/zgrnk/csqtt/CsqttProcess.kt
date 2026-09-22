@@ -5,7 +5,7 @@
 // stdout event reader, stdin command writer, clean stop (STOP, wait, destroy), and a plain
 // restart-on-crash policy. Deliberately does not port upstream's chaos-recovery machinery
 // (worker-zero watchdog, Wi-Fi auto-pause, panel-restart scheduling, VK-reachability probes,
-// auto_js hash rotation) — out of scope for this fork's v1, see PROMPT_sonnet_csqtt_step4.md.
+// auto_js hash rotation) — out of scope for this fork's v1.
 
 package io.nekohasekai.sfa.zgrnk.csqtt
 
@@ -24,6 +24,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import java.io.File
 import java.lang.ref.WeakReference
 
@@ -90,7 +91,7 @@ object CsqttProcess {
         }
         if (p != null) terminateProcess(p)
         CsqttCaptchaWebViewManager.onTunnelStop()
-        _state.value = State(logTail = _state.value.logTail)
+        _state.update { State(logTail = it.logTail) }
     }
 
     private fun terminateProcess(p: Process) {
@@ -158,20 +159,22 @@ object CsqttProcess {
         process = startedProcess
         val myGeneration = ++generation
         CsqttCaptchaWebViewManager.onTunnelStart(context)
-        _state.value = State(
-            running = true,
-            starting = true,
-            statsText = "Ожидание данных...",
-            hashStatus = params.vkHashes.associateWith { HashStatus.READY },
-            logTail = _state.value.logTail,
-        )
+        _state.update {
+            State(
+                running = true,
+                starting = true,
+                statsText = "Ожидание данных...",
+                hashStatus = params.vkHashes.associateWith { HashStatus.READY },
+                logTail = it.logTail,
+            )
+        }
         startLogReader(context, startedProcess, myGeneration, params)
     }
 
     private fun failStart(message: String) {
         desiredRunning = false
         pushLog("[ОШИБКА] $message")
-        _state.value = _state.value.copy(running = false, starting = false)
+        _state.update { it.copy(running = false, starting = false) }
     }
 
     private fun startLogReader(context: Context, targetProcess: Process, myGeneration: Long, params: CsqttParams) {
@@ -204,14 +207,14 @@ object CsqttProcess {
                             failStart("Rust-клиент падает подряд — перезапуск остановлен, проверьте пароль/хеши/сеть")
                         } else {
                             pushLog("Rust-клиент завершился, перезапуск через 2с...")
-                            _state.value = _state.value.copy(running = false, starting = true)
+                            _state.update { it.copy(running = false, starting = true) }
                             delay(CsqttConstants.CRASH_RESTART_DELAY_MS)
                             if (desiredRunning && generation == myGeneration) {
                                 launchProcessLocked(context, currentParams ?: params)
                             }
                         }
                     } else {
-                        _state.value = State(logTail = _state.value.logTail)
+                        _state.update { State(logTail = it.logTail) }
                     }
                 }
             }
@@ -222,25 +225,27 @@ object CsqttProcess {
         when (event) {
             is CsqttEventParser.Event.Process -> Unit
             is CsqttEventParser.Event.Ready -> {
-                _state.value = _state.value.copy(starting = false)
+                _state.update { it.copy(starting = false) }
             }
             is CsqttEventParser.Event.Stats -> {
                 crashStreak = 0
                 val totalMB = (event.bytesUp + event.bytesDown) / (1024.0 * 1024.0)
-                _state.value = _state.value.copy(
-                    starting = false,
-                    activeWorkers = event.active,
-                    statsText = "Активных: ${event.active} | Трафик: %.2f МБ".format(totalMB),
-                )
+                _state.update {
+                    it.copy(
+                        starting = false,
+                        activeWorkers = event.active,
+                        statsText = "Активных: ${event.active} | Трафик: %.2f МБ".format(totalMB),
+                    )
+                }
             }
             is CsqttEventParser.Event.ActiveZero -> {
-                _state.value = _state.value.copy(activeWorkers = 0)
+                _state.update { it.copy(activeWorkers = 0) }
             }
             is CsqttEventParser.Event.CallUnavailable -> {
                 pushLog("[VK] Хеш …${event.hash.takeLast(6)} недоступен (код ${event.code})")
-                _state.value = _state.value.copy(
-                    hashStatus = _state.value.hashStatus + (event.hash to HashStatus.UNAVAILABLE),
-                )
+                _state.update {
+                    it.copy(hashStatus = it.hashStatus + (event.hash to HashStatus.UNAVAILABLE))
+                }
             }
             is CsqttEventParser.Event.Config -> {
                 val configStr = event.config.trim()
@@ -317,7 +322,7 @@ object CsqttProcess {
 
     fun onVpnInterfaceReady() {
         pushLog("[VPN] Туннель поднят ✓")
-        _state.value = _state.value.copy(starting = false)
+        _state.update { it.copy(starting = false) }
     }
 
     fun onVpnInterfaceStopped() {
@@ -331,7 +336,7 @@ object CsqttProcess {
     }
 
     private fun pushLog(line: String) {
-        _state.value = _state.value.copy(logTail = (_state.value.logTail + line).takeLast(200))
+        _state.update { it.copy(logTail = (it.logTail + line).takeLast(200)) }
     }
 
     @SuppressLint("HardwareIds")
